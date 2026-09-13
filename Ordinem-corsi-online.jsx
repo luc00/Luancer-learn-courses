@@ -12,7 +12,7 @@ import {
 
 // ⚠️ Sostituisci con l'URL del tuo backend una volta pubblicato
 // (es. https://ordinem-backend.onrender.com)
-const API_BASE = "https://YOUR-BACKEND-URL.example.com";
+const API_BASE = "https://luancer-learn-courses.onrender.com";
 
 async function startCheckout({ courseId, title, price, lang }) {
   const res = await fetch(`${API_BASE}/create-checkout-session`, {
