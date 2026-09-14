@@ -647,7 +647,7 @@ function CatalogPage({ courses, setView, initialCategory }) {
 
 function CourseDetailPage({ course, setView, initialEnrolledLang, paymentCanceled }) {
   const [tab, setTab] = useState("programma");
-  const [courseLang, setCourseLang] = useState(initialEnrolledLang || null);
+  const [courseLang, setCourseLang] = useState(null);
   const [langError, setLangError] = useState(false);
   const [enrolled, setEnrolled] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
