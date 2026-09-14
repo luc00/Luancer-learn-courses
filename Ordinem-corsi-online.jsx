@@ -649,7 +649,7 @@ function CourseDetailPage({ course, setView, initialEnrolledLang, paymentCancele
   const [tab, setTab] = useState("programma");
   const [courseLang, setCourseLang] = useState(initialEnrolledLang || null);
   const [langError, setLangError] = useState(false);
-  const [enrolled, setEnrolled] = useState(!!initialEnrolledLang);
+  const [enrolled, setEnrolled] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [payError, setPayError] = useState(false);
 
