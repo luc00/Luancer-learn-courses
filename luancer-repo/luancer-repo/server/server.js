@@ -1,0 +1,160 @@
+// server.js — backend minimale per Ordinem.
+// Il suo unico compito: creare una "sessione di pagamento" su Stripe per un corso
+// e restituire al sito il link a cui reindirizzare il cliente.
+// La chiave segreta di Stripe (che sblocca l'accesso al tuo account) vive SOLO
+// qui, sul server, mai nel codice del sito che gira nel browser.
+
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const Stripe = require("stripe");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+
+const app = express();
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
+// URL pubblico del tuo sito (dove Stripe rimanda il cliente dopo il pagamento,
+// e dove mandiamo il link di reimpostazione password)
+const SITE_URL = process.env.SITE_URL || "http://localhost:3000";
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me-in-production";
+
+app.use(cors());
+app.use(express.json());
+
+app.post("/create-checkout-session", async (req, res) => {
+  try {
+    const { courseId, title, price, lang } = req.body || {};
+
+    if (!courseId || !title || !price) {
+      return res.status(400).json({ error: "Dati del corso mancanti o incompleti." });
+    }
+    const amountCents = Math.round(Number(price) * 100);
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      return res.status(400).json({ error: "Prezzo del corso non valido." });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: "eur",
+            product_data: { name: String(title).slice(0, 250) },
+            unit_amount: amountCents,
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: `${SITE_URL}/?success=1&course=${encodeURIComponent(courseId)}&lang=${encodeURIComponent(lang || "")}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${SITE_URL}/?canceled=1&course=${encodeURIComponent(courseId)}`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("Errore creazione sessione Stripe:", err.message);
+    res.status(500).json({ error: "Impossibile avviare il pagamento in questo momento." });
+  }
+});
+
+app.get("/health", (req, res) => res.json({ ok: true }));
+
+/* ------------------------------------------------------------------ */
+/* ACCOUNT — signup / login / password reset                           */
+/*                                                                      */
+/* ⚠️ Gli utenti vivono in memoria: si svuotano ogni volta che il      */
+/* server riparte. Va benissimo per collaudare il sito; prima di avere */
+/* clienti veri, sostituisci "users"/"resetTokens" con un vero database */
+/* (Postgres, MongoDB, Supabase...).                                   */
+/*                                                                      */
+/* Google/Apple: per attivarli davvero devi registrare un'app OAuth su */
+/* Google Cloud Console / Apple Developer con le tue credenziali e     */
+/* aggiungere qui le relative rotte (es. con la libreria "passport").  */
+/* ------------------------------------------------------------------ */
+
+const users = new Map(); // email -> { name, email, passwordHash }
+const resetTokens = new Map(); // token -> { email, expires }
+
+function isValidEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+
+app.post("/auth/signup", async (req, res) => {
+  try {
+    const { name, email, password } = req.body || {};
+    if (!name || !email || !password) return res.status(400).json({ error: "Compila tutti i campi." });
+    if (!isValidEmail(email)) return res.status(400).json({ error: "Email non valida." });
+    if (password.length < 8) return res.status(400).json({ error: "La password deve avere almeno 8 caratteri." });
+    const key = String(email).toLowerCase();
+    if (users.has(key)) return res.status(409).json({ error: "Esiste già un account con questa email." });
+    const passwordHash = await bcrypt.hash(password, 10);
+    users.set(key, { name: String(name).slice(0, 120), email: key, passwordHash });
+    const token = jwt.sign({ email: key }, JWT_SECRET, { expiresIn: "30d" });
+    res.json({ token, user: { name, email: key } });
+  } catch (err) {
+    console.error("Errore signup:", err.message);
+    res.status(500).json({ error: "Impossibile creare l'account in questo momento." });
+  }
+});
+
+app.post("/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: "Inserisci email e password." });
+    const key = String(email).toLowerCase();
+    const user = users.get(key);
+    if (!user) return res.status(401).json({ error: "Email o password non corretti." });
+    const ok = await bcrypt.compare(password, user.passwordHash);
+    if (!ok) return res.status(401).json({ error: "Email o password non corretti." });
+    const token = jwt.sign({ email: key }, JWT_SECRET, { expiresIn: "30d" });
+    res.json({ token, user: { name: user.name, email: user.email } });
+  } catch (err) {
+    console.error("Errore login:", err.message);
+    res.status(500).json({ error: "Impossibile accedere in questo momento." });
+  }
+});
+
+app.post("/auth/forgot-password", (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email || !isValidEmail(email)) return res.status(400).json({ error: "Inserisci un'email valida." });
+    const key = String(email).toLowerCase();
+    // Per sicurezza rispondiamo sempre "ok", che l'account esista o no
+    // (così chi prova non scopre quali email sono registrate).
+    if (users.has(key)) {
+      const token = crypto.randomBytes(24).toString("hex");
+      resetTokens.set(token, { email: key, expires: Date.now() + 1000 * 60 * 30 });
+      const resetLink = `${SITE_URL}/?resetToken=${token}`;
+      // TODO: collega qui un vero servizio email (Resend, SendGrid, Postmark...)
+      // che mandi resetLink all'indirizzo "key". Per ora il link finisce nei log.
+      console.log(`[reset password] Link per ${key}: ${resetLink}`);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Errore forgot-password:", err.message);
+    res.status(500).json({ error: "Impossibile inviare l'email in questo momento." });
+  }
+});
+
+app.post("/auth/reset-password", async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token || !password) return res.status(400).json({ error: "Richiesta non valida." });
+    if (password.length < 8) return res.status(400).json({ error: "La password deve avere almeno 8 caratteri." });
+    const entry = resetTokens.get(token);
+    if (!entry || entry.expires < Date.now()) {
+      return res.status(400).json({ error: "Il link è scaduto o non è valido. Richiedine uno nuovo." });
+    }
+    const user = users.get(entry.email);
+    if (!user) return res.status(400).json({ error: "Account non trovato." });
+    user.passwordHash = await bcrypt.hash(password, 10);
+    resetTokens.delete(token);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Errore reset-password:", err.message);
+    res.status(500).json({ error: "Impossibile reimpostare la password in questo momento." });
+  }
+});
+
+const PORT = process.env.PORT || 4242;
+app.listen(PORT, () => console.log(`Ordinem backend in ascolto sulla porta ${PORT}`));
