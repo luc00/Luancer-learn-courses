@@ -1,9 +1,4 @@
 // server.js — backend minimale per Ordinem.
-// Il suo unico compito: creare una "sessione di pagamento" su Stripe per un corso
-// e restituire al sito il link a cui reindirizzare il cliente.
-// La chiave segreta di Stripe (che sblocca l'accesso al tuo account) vive SOLO
-// qui, sul server, mai nel codice del sito che gira nel browser.
-
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -15,12 +10,17 @@ const crypto = require("crypto");
 const app = express();
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
-// URL pubblico del tuo sito (dove Stripe rimanda il cliente dopo il pagamento,
-// e dove mandiamo il link di reimpostazione password)
 const SITE_URL = process.env.SITE_URL || "http://localhost:3000";
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me-in-production";
 
-app.use(cors());
+// Configurazione CORS avanzata per evitare blocchi tra Vercel e Render
+app.use(cors({
+  origin: SITE_URL || "*",
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
 app.use(express.json());
 
 app.post("/create-checkout-session", async (req, res) => {
@@ -30,7 +30,11 @@ app.post("/create-checkout-session", async (req, res) => {
     if (!courseId || !title || !price) {
       return res.status(400).json({ error: "Dati del corso mancanti o incompleti." });
     }
-    const amountCents = Math.round(Number(price) * 100);
+
+    // Gestisce sia "198" che "198,00" o "198.00"
+    const cleanPrice = typeof price === "string" ? price.replace(",", ".") : price;
+    const amountCents = Math.round(Number(cleanPrice) * 100);
+
     if (!Number.isFinite(amountCents) || amountCents <= 0) {
       return res.status(400).json({ error: "Prezzo del corso non valido." });
     }
@@ -61,20 +65,11 @@ app.post("/create-checkout-session", async (req, res) => {
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 /* ------------------------------------------------------------------ */
-/* ACCOUNT — signup / login / password reset                           */
-/*                                                                    */
-/* ⚠️ Gli utenti vivono in memoria: si svuotano ogni volta che il      */
-/* server riparte. Va benissimo per collaudare il sito; prima di avere */
-/* clienti veri, sostituisci "users"/"resetTokens" con un vero database */
-/* (Postgres, MongoDB, Supabase...).                                   */
-/*                                                                    */
-/* Google/Apple: per attivarli davvero devi registrare un'app OAuth su */
-/* Google Cloud Console / Apple Developer con le tue credenziali e     */
-/* aggiungere qui le relative rotte (es. con la libreria "passport").  */
+/* ACCOUNT — signup / login / password reset                          */
 /* ------------------------------------------------------------------ */
 
-const users = new Map(); // email -> { name, email, passwordHash }
-const resetTokens = new Map(); // token -> { email, expires }
+const users = new Map();
+const resetTokens = new Map();
 
 function isValidEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 
@@ -152,4 +147,4 @@ app.post("/auth/reset-password", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 4242;
-app.listen(PORT, () => console.log(`Ordinem backend in ascolto sulla porta ${PORT}`));
+app.listen(PORT, () => console.log(`Ordinem backend in ascolto sulla porta ${PORT}`));o sulla porta ${PORT}`));
