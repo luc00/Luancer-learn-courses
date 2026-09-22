@@ -45,7 +45,10 @@ app.post("/create-checkout-session", async (req, res) => {
         {
           price_data: {
             currency: "eur",
-            product_data: { name: String(title).slice(0, 250) },
+            product_data: { 
+              name: String(title).slice(0, 250),
+              tax_code: "txcd_10000000" // Aggiunto tax_code richiesto da Stripe Managed Payments
+            },
             unit_amount: amountCents,
           },
           quantity: 1,
@@ -147,4 +150,4 @@ app.post("/auth/reset-password", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 4242;
-app.listen(PORT, () => console.log(`Ordinem backend in ascolto sulla porta ${PORT}`));o sulla porta ${PORT}`));
+app.listen(PORT, () => console.log(`Ordinem backend in ascolto sulla porta ${PORT}`));
