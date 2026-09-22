@@ -13,9 +13,21 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const SITE_URL = process.env.SITE_URL || "http://localhost:3000";
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me-in-production";
 
-// Configurazione CORS avanzata per evitare blocchi tra Vercel e Render
+// Configurazione CORS dinamica per domini custom e preview Vercel
 app.use(cors({
-  origin: SITE_URL || "*",
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    
+    if (
+      origin === SITE_URL ||
+      origin.endsWith(".vercel.app") ||
+      origin === "http://localhost:3000"
+    ) {
+      return callback(null, true);
+    }
+    
+    return callback(new Error("Bloccato da politica CORS"));
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
