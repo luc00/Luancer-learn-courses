@@ -37,7 +37,6 @@ app.post("/create-checkout-session", async (req, res) => {
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      payment_method_types: ["card"],
       line_items: [
         {
           price_data: {
@@ -63,12 +62,12 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 
 /* ------------------------------------------------------------------ */
 /* ACCOUNT — signup / login / password reset                           */
-/*                                                                      */
+/*                                                                    */
 /* ⚠️ Gli utenti vivono in memoria: si svuotano ogni volta che il      */
 /* server riparte. Va benissimo per collaudare il sito; prima di avere */
 /* clienti veri, sostituisci "users"/"resetTokens" con un vero database */
 /* (Postgres, MongoDB, Supabase...).                                   */
-/*                                                                      */
+/*                                                                    */
 /* Google/Apple: per attivarli davvero devi registrare un'app OAuth su */
 /* Google Cloud Console / Apple Developer con le tue credenziali e     */
 /* aggiungere qui le relative rotte (es. con la libreria "passport").  */
@@ -119,14 +118,10 @@ app.post("/auth/forgot-password", (req, res) => {
     const { email } = req.body || {};
     if (!email || !isValidEmail(email)) return res.status(400).json({ error: "Inserisci un'email valida." });
     const key = String(email).toLowerCase();
-    // Per sicurezza rispondiamo sempre "ok", che l'account esista o no
-    // (così chi prova non scopre quali email sono registrate).
     if (users.has(key)) {
       const token = crypto.randomBytes(24).toString("hex");
       resetTokens.set(token, { email: key, expires: Date.now() + 1000 * 60 * 30 });
       const resetLink = `${SITE_URL}/?resetToken=${token}`;
-      // TODO: collega qui un vero servizio email (Resend, SendGrid, Postmark...)
-      // che mandi resetLink all'indirizzo "key". Per ora il link finisce nei log.
       console.log(`[reset password] Link per ${key}: ${resetLink}`);
     }
     res.json({ ok: true });
